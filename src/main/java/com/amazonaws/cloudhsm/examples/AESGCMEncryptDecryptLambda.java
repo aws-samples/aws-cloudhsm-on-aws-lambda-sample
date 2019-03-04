@@ -62,7 +62,7 @@ public class AESGCMEncryptDecryptLambda {
 		LambdaLogger logger = context.getLogger();
 
 		// Get the CU credentials from aws secrets manager
-		//
+
 		String secret_id = System.getenv("SECRET_ID");
 
 		if (secret_id == null || secret_id.isEmpty()) {
