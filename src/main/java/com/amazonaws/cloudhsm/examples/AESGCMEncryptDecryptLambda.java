@@ -1,3 +1,20 @@
+/*
+ * Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this
+ * software and associated documentation files (the "Software"), to deal in the Software
+ * without restriction, including without limitation the rights to use, copy, modify,
+ * merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+ * PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 package com.amazonaws.cloudhsm.examples;
 
 import java.io.IOException;
@@ -45,37 +62,22 @@ public class AESGCMEncryptDecryptLambda {
 		LambdaLogger logger = context.getLogger();
 
 		// Get the CU credentials from aws secrets manager
-
-		logger.log("* Running GetSecretValue to get the CU credentials ... ");
-		
+		//
 		String secret_id = System.getenv("SECRET_ID");
 
-        if (secret_id == null || secret_id.isEmpty()) {
-            logger.log("ERROR: Please set the Secret id in the SECRET_ID environmental variable");
-            System.exit(1);
-        }
-
-		SecretsManagerClient sm_client = SecretsManagerClient.create();
-
-		GetSecretValueRequest getsecretreq = GetSecretValueRequest.builder().secretId(secret_id).build();
-
-		GetSecretValueResponse sm_response = null;
-		try {
-			sm_response = sm_client.getSecretValue(getsecretreq);
-		} catch (Exception e) {
-            logger.log("ERROR: Unable to get the value of the secret \""+secret_id+"\"");
-			logger.log(e.getMessage());
-            System.exit(1);
+		if (secret_id == null || secret_id.isEmpty()) {
+			logger.log("ERROR: Please set the Secret id in the SECRET_ID environmental variable");
+			System.exit(1);
 		}
 
-		String secret_value = sm_response.secretString();
+		String secret_value = getCUSecretValue(secret_id, logger);
 
 		JSONParser secret_parser = new JSONParser();
 		JSONObject secret_json = (JSONObject) secret_parser.parse(secret_value);
-		
+
 		if (! secret_json.containsKey("HSM_USER") || ! secret_json.containsKey("HSM_PASSWORD") ) {
-			logger.log("ERROR: Credentials not found in secret \""+secret_id+"\" , Please make sure it contins the keys HSM_USER and HSM_PASSWORD");
-            System.exit(1);
+			logger.log("ERROR: Credentials not found in secret \""+secret_id+"\" , Please make sure it contains the keys HSM_USER and HSM_PASSWORD");
+			System.exit(1);
 		}
 
 		String hsm_user = (String) secret_json.get("HSM_USER");
@@ -84,43 +86,12 @@ public class AESGCMEncryptDecryptLambda {
 
 		// Get Ip of the first HSM in the Cluster
 
-		logger.log("* Running DescribeClusters to get the HSM IP ... ");
-
-        String ClusterId = System.getenv("CLUSTER_ID");
-
-        if (ClusterId == null || ClusterId.isEmpty()) {
-            logger.log("ERROR: Please set the Cluster id in the CLUSTER_ID environmental variable");
-            System.exit(1);
-        }
-
-        ArrayList<String> ClusterIds = new ArrayList<String>();
-        ClusterIds.add(ClusterId);
-        HashMap<String,ArrayList<String>> filters = new HashMap<String,ArrayList<String>>();
-        filters.put("clusterIds",ClusterIds);
-
-
-        CloudHsmV2Client client = CloudHsmV2Client.create();
-
-        DescribeClustersRequest describeClustersRequest = DescribeClustersRequest.builder().filters(filters).build();
-
-        DescribeClustersResponse response = client.describeClusters(describeClustersRequest);
-
-		if (response.clusters().size()<1) {
-			logger.log("ERROR: Cluster \""+ClusterId+"\" not found");
-            System.exit(1);
-		}
-
-		if (response.clusters().get(0).hsms().size()<1){
-			logger.log("ERROR: No HSMs were found in the Cluster \""+ClusterId+"\"");
-			System.exit(1);
-		}
-
-		String HsmIp = response.clusters().get(0).hsms().get(0).eniIp();
+		String HsmIp = getHsmIp(logger);
 
 		logger.log("DescribeClusters returned the HSM IP = "+HsmIp);
 
 		// Get the Ip from the configuration file
-		logger.log("* Getting the HSM IP inf the configuration file ... ");
+		logger.log("* Getting the HSM IP of the configuration file ... ");
 
 		String confFile = "etc/cloudhsm_client.cfg";
 
@@ -148,30 +119,7 @@ public class AESGCMEncryptDecryptLambda {
 
 		// Start the client process 
 
-		logger.log("* Starting the cloudhsm client ... ");
-
-		File logFile = new File("/tmp/client.log");
-		Process pr = new ProcessBuilder("bin/cloudhsm_client",confFile).redirectErrorStream(true).redirectOutput(logFile).start();
-
-		// Wait for the client to start
-		
-		logger.log("* Waiting for the cloudhsm client to start ... ");
-
-		Pattern pat = Pattern.compile("libevmulti_init: Ready !");
-
-		FileReader lf = new FileReader(logFile);
-		BufferedReader in = new BufferedReader(lf);
-
-		String line="";
-		Matcher match = pat.matcher(line);
-		while (! match.find()) {
-			line=in.readLine();
-			if (line!=null) {
-				match = pat.matcher(line);
-			}
-		}
-
-		logger.log("* cloudhsm client started ... ");
+		Process pr = StartClientProcess(confFile, logger);
 
 		// Add the provider
 
@@ -243,6 +191,110 @@ public class AESGCMEncryptDecryptLambda {
 	}
 
 
+	/** 
+	 * Get the value of the secret containing the CU credentials
+	 * @param secret_id
+	 * @param logger
+	 * @return String containing the JSON secret_value
+	 */
+	public static String getCUSecretValue(String secret_id, LambdaLogger logger) {
+
+		logger.log("* Running GetSecretValue to get the CU credentials ... ");
+
+		SecretsManagerClient sm_client = SecretsManagerClient.create();
+
+		GetSecretValueRequest getsecretreq = GetSecretValueRequest.builder().secretId(secret_id).build();
+
+		GetSecretValueResponse sm_response = null;
+		try {
+			sm_response = sm_client.getSecretValue(getsecretreq);
+		} catch (Exception e) {
+			logger.log("ERROR: Unable to get the value of the secret \""+secret_id+"\"");
+			logger.log(e.getMessage());
+			System.exit(1);
+		}
+
+		return sm_response.secretString();
+
+	}
+
+	/** 
+	 * Get the IP of the first HSM in the CloudHSM cluster
+	 * @param logger
+	 * @return String containing the HSM IP
+	 */
+	public static String getHsmIp(LambdaLogger logger) {
+
+		logger.log("* Running DescribeClusters to get the HSM IP ... ");
+
+		String ClusterId = System.getenv("CLUSTER_ID");
+
+		if (ClusterId == null || ClusterId.isEmpty()) {
+			logger.log("ERROR: Please set the Cluster id in the CLUSTER_ID environmental variable");
+			System.exit(1);
+		}
+
+		ArrayList<String> ClusterIds = new ArrayList<String>();
+		ClusterIds.add(ClusterId);
+		HashMap<String,ArrayList<String>> filters = new HashMap<String,ArrayList<String>>();
+		filters.put("clusterIds",ClusterIds);
+
+
+		CloudHsmV2Client client = CloudHsmV2Client.create();
+
+		DescribeClustersRequest describeClustersRequest = DescribeClustersRequest.builder().filters(filters).build();
+
+		DescribeClustersResponse response = client.describeClusters(describeClustersRequest);
+
+		if (response.clusters().size()<1) {
+			logger.log("ERROR: Cluster \""+ClusterId+"\" not found");
+			System.exit(1);
+		}
+
+		if (response.clusters().get(0).hsms().size()<1){
+			logger.log("ERROR: No HSMs were found in the Cluster \""+ClusterId+"\"");
+			System.exit(1);
+		}
+
+		return response.clusters().get(0).hsms().get(0).eniIp();
+
+	}
+
+	/** 
+	 * Start the CloudHSM client process
+	 * @param confFile
+	 * @param logger
+	 * @return Process referring to the client process
+	 */
+	public static Process StartClientProcess(String confFile, LambdaLogger logger) throws Exception {
+
+		logger.log("* Starting the cloudhsm client ... ");
+
+		File logFile = new File("/tmp/client.log");
+		Process pr = new ProcessBuilder("bin/cloudhsm_client",confFile).redirectErrorStream(true).redirectOutput(logFile).start();
+
+		// Wait for the client to start
+
+		logger.log("* Waiting for the cloudhsm client to start ... ");
+
+		Pattern pat = Pattern.compile("libevmulti_init: Ready !");
+
+		FileReader lf = new FileReader(logFile);
+		BufferedReader in = new BufferedReader(lf);
+
+		String line="";
+		Matcher match = pat.matcher(line);
+		while (! match.find()) {
+			line=in.readLine();
+			if (line!=null) {
+				match = pat.matcher(line);
+			}
+		}
+
+		logger.log("* cloudhsm client started ... ");
+		return pr;
+	}
+
 	/**
 	 * Encrypt some plaintext and authentication data using the GCM cipher mode.
 	 * @param key
@@ -299,26 +351,26 @@ public class AESGCMEncryptDecryptLambda {
 		return null;
 	}
 
-    /**
-     * The explicit login method allows users to pass credentials to the Cluster manually. If you obtain credentials
-     * from a provider during runtime, this method allows you to login.
-     * @param user Name of CU user in HSM
-     * @param pass Password for CU user.
-     * @param partition HSM ID
-     */
-    public static void loginWithExplicitCredentials(String user, String pass, String partition, LambdaLogger logger) {
-        LoginManager lm = LoginManager.getInstance();
-        try {
-            lm.login(partition, user, pass);
-            logger.log("Login successful!");
-        } catch (CFM2Exception e) {
-            if (CFM2Exception.isAuthenticationFailure(e)) {
-                logger.log("Detected invalid credentials");
-            }
+	/**
+	 * The explicit login method allows users to pass credentials to the Cluster manually. If you obtain credentials
+	 * from a provider during runtime, this method allows you to login.
+	 * @param user Name of CU user in HSM
+	 * @param pass Password for CU user.
+	 * @param partition HSM ID
+	 */
+	public static void loginWithExplicitCredentials(String user, String pass, String partition, LambdaLogger logger) {
+		LoginManager lm = LoginManager.getInstance();
+		try {
+			lm.login(partition, user, pass);
+			logger.log("Login successful!");
+		} catch (CFM2Exception e) {
+			if (CFM2Exception.isAuthenticationFailure(e)) {
+				logger.log("Detected invalid credentials");
+			}
 
-            e.printStackTrace();
+			e.printStackTrace();
 			System.exit(1);
-        }
+		}
 	}
 
 	/**
