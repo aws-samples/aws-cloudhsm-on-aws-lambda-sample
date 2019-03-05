@@ -36,6 +36,7 @@ import software.amazon.awssdk.services.cloudhsmv2.model.Hsm;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+import software.amazon.awssdk.services.secretsmanager.model.SecretsManagerException;
 
 import com.cavium.cfm2.CFM2Exception;
 import com.cavium.cfm2.LoginManager;
@@ -62,12 +63,11 @@ public class AESGCMEncryptDecryptLambda {
 		LambdaLogger logger = context.getLogger();
 
 		// Get the CU credentials from aws secrets manager
-
+		//
 		String secret_id = System.getenv("SECRET_ID");
 
 		if (secret_id == null || secret_id.isEmpty()) {
-			logger.log("ERROR: Please set the Secret id in the SECRET_ID environmental variable");
-			System.exit(1);
+			throw new RuntimeException("ERROR: Please set the Secret id in the SECRET_ID environmental variable");
 		}
 
 		String secret_value = getCUSecretValue(secret_id, logger);
@@ -76,8 +76,7 @@ public class AESGCMEncryptDecryptLambda {
 		JSONObject secret_json = (JSONObject) secret_parser.parse(secret_value);
 
 		if (! secret_json.containsKey("HSM_USER") || ! secret_json.containsKey("HSM_PASSWORD") ) {
-			logger.log("ERROR: Credentials not found in secret \""+secret_id+"\" , Please make sure it contains the keys HSM_USER and HSM_PASSWORD");
-			System.exit(1);
+			throw new RuntimeException("ERROR: Credentials not found in secret \""+secret_id+"\" , Please make sure it contains the keys HSM_USER and HSM_PASSWORD");
 		}
 
 		String hsm_user = (String) secret_json.get("HSM_USER");
@@ -208,10 +207,8 @@ public class AESGCMEncryptDecryptLambda {
 		GetSecretValueResponse sm_response = null;
 		try {
 			sm_response = sm_client.getSecretValue(getsecretreq);
-		} catch (Exception e) {
-			logger.log("ERROR: Unable to get the value of the secret \""+secret_id+"\"");
-			logger.log(e.getMessage());
-			System.exit(1);
+		} catch (SecretsManagerException e) {
+			throw new RuntimeException("ERROR: Unable to get the value of the secret \""+secret_id+"\"");
 		}
 
 		return sm_response.secretString();
@@ -230,8 +227,7 @@ public class AESGCMEncryptDecryptLambda {
 		String ClusterId = System.getenv("CLUSTER_ID");
 
 		if (ClusterId == null || ClusterId.isEmpty()) {
-			logger.log("ERROR: Please set the Cluster id in the CLUSTER_ID environmental variable");
-			System.exit(1);
+			throw new RuntimeException("ERROR: Please set ohe Cluster id in the CLUSTER_ID environmental variable");
 		}
 
 		ArrayList<String> ClusterIds = new ArrayList<String>();
@@ -247,13 +243,11 @@ public class AESGCMEncryptDecryptLambda {
 		DescribeClustersResponse response = client.describeClusters(describeClustersRequest);
 
 		if (response.clusters().size()<1) {
-			logger.log("ERROR: Cluster \""+ClusterId+"\" not found");
-			System.exit(1);
+			throw new RuntimeException("ERROR: Cluster \""+ClusterId+"\" not found");
 		}
 
 		if (response.clusters().get(0).hsms().size()<1){
-			logger.log("ERROR: No HSMs were found in the Cluster \""+ClusterId+"\"");
-			System.exit(1);
+			throw new RuntimeException("ERROR: No HSMs were found in the Cluster \""+ClusterId+"\"");
 		}
 
 		return response.clusters().get(0).hsms().get(0).eniIp();
@@ -365,11 +359,8 @@ public class AESGCMEncryptDecryptLambda {
 			logger.log("Login successful!");
 		} catch (CFM2Exception e) {
 			if (CFM2Exception.isAuthenticationFailure(e)) {
-				logger.log("Detected invalid credentials");
+				throw new RuntimeException("ERROR: Detected invalid credentials");
 			}
-
-			e.printStackTrace();
-			System.exit(1);
 		}
 	}
 
