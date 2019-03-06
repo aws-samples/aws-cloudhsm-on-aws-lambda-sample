@@ -57,10 +57,12 @@ import java.io.BufferedReader;
  */
 public class AESGCMEncryptDecryptLambda {
 
-	public static void myhandler(Context context) throws Exception {
+	LambdaLogger logger;
+
+	public void myhandler(Context context) throws Exception {
 
 		// Start the Lambda logger
-		LambdaLogger logger = context.getLogger();
+		logger = context.getLogger();
 
 		// Get the CU credentials from aws secrets manager
 		//
@@ -70,7 +72,7 @@ public class AESGCMEncryptDecryptLambda {
 			throw new RuntimeException("ERROR: Please set the Secret id in the SECRET_ID environmental variable");
 		}
 
-		String secret_value = getCUSecretValue(secret_id, logger);
+		String secret_value = getCUSecretValue(secret_id);
 
 		JSONParser secret_parser = new JSONParser();
 		JSONObject secret_json = (JSONObject) secret_parser.parse(secret_value);
@@ -85,7 +87,7 @@ public class AESGCMEncryptDecryptLambda {
 
 		// Get Ip of the first HSM in the Cluster
 
-		String HsmIp = getHsmIp(logger);
+		String HsmIp = getHsmIp();
 
 		logger.log("DescribeClusters returned the HSM IP = "+HsmIp);
 
@@ -118,7 +120,7 @@ public class AESGCMEncryptDecryptLambda {
 
 		// Start the client process 
 
-		Process pr = StartClientProcess(confFile, logger);
+		Process pr = StartClientProcess(confFile);
 
 		// Add the provider
 
@@ -135,7 +137,7 @@ public class AESGCMEncryptDecryptLambda {
 
 		logger.log("* Using credentials to Login to the CloudHSM Cluster ... ");
 
-		loginWithExplicitCredentials(hsm_user, hsm_password, hsm_partition, logger);
+		loginWithExplicitCredentials(hsm_user, hsm_password, hsm_partition);
 
 		// Generate a new AES Key to use for encryption.
 
@@ -176,7 +178,7 @@ public class AESGCMEncryptDecryptLambda {
 		byte[] decryptedText = decrypt(key, cipherText, iv, aad.getBytes());
 		logger.log("Decrypted Text data = "+byteToString(decryptedText));
 		assert(java.util.Arrays.equals(plainText, decryptedText));
-		logger.log(" * Successful decryption");
+		logger.log("* Successful decryption");
 
 		// Logging out
 		logger.log("* Logging out the CloudHSM Cluster");
@@ -193,10 +195,9 @@ public class AESGCMEncryptDecryptLambda {
 	/** 
 	 * Get the value of the secret containing the CU credentials
 	 * @param secret_id
-	 * @param logger
 	 * @return String containing the JSON secret_value
 	 */
-	public static String getCUSecretValue(String secret_id, LambdaLogger logger) {
+	public String getCUSecretValue(String secret_id) {
 
 		logger.log("* Running GetSecretValue to get the CU credentials ... ");
 
@@ -217,10 +218,9 @@ public class AESGCMEncryptDecryptLambda {
 
 	/** 
 	 * Get the IP of the first HSM in the CloudHSM cluster
-	 * @param logger
 	 * @return String containing the HSM IP
 	 */
-	public static String getHsmIp(LambdaLogger logger) {
+	public String getHsmIp() {
 
 		logger.log("* Running DescribeClusters to get the HSM IP ... ");
 
@@ -257,10 +257,9 @@ public class AESGCMEncryptDecryptLambda {
 	/** 
 	 * Start the CloudHSM client process
 	 * @param confFile
-	 * @param logger
 	 * @return Process referring to the client process
 	 */
-	public static Process StartClientProcess(String confFile, LambdaLogger logger) throws Exception {
+	public Process StartClientProcess(String confFile) throws Exception {
 
 		logger.log("* Starting the cloudhsm client ... ");
 
@@ -296,7 +295,7 @@ public class AESGCMEncryptDecryptLambda {
 	 * @param aad
 	 * @return List of byte[] containing the IV and cipherText
 	 */
-	public static List<byte[]> encrypt(Key key, byte[] plainText, byte[] aad) {
+	public List<byte[]> encrypt(Key key, byte[] plainText, byte[] aad) {
 		try {
 			// Create an encryption cipher.
 			Cipher encCipher = Cipher.getInstance("AES/GCM/NoPadding", "Cavium");
@@ -324,7 +323,7 @@ public class AESGCMEncryptDecryptLambda {
 	 * @param aad
 	 * @return byte[] of the decrypted ciphertext.
 	 */
-	public static byte[] decrypt(Key key, byte[] cipherText, byte[] iv, byte[] aad) {
+	public byte[] decrypt(Key key, byte[] cipherText, byte[] iv, byte[] aad) {
 		Cipher decCipher;
 		try {
 			// Only 128 bit tags are supported
@@ -352,7 +351,7 @@ public class AESGCMEncryptDecryptLambda {
 	 * @param pass Password for CU user.
 	 * @param partition HSM ID
 	 */
-	public static void loginWithExplicitCredentials(String user, String pass, String partition, LambdaLogger logger) {
+	public void loginWithExplicitCredentials(String user, String pass, String partition) {
 		LoginManager lm = LoginManager.getInstance();
 		try {
 			lm.login(partition, user, pass);
@@ -367,7 +366,7 @@ public class AESGCMEncryptDecryptLambda {
 	/**
 	 * Logout will force the LoginManager to end your session.
 	 */
-	public static void logout() {
+	public void logout() {
 		try {
 			LoginManager.getInstance().logout();
 		} catch (CFM2Exception e) {
@@ -378,7 +377,7 @@ public class AESGCMEncryptDecryptLambda {
 	/**
 	 * Converts byte[] to Hex String
 	 */
-	public static String byteToString(byte[] data) {
+	public String byteToString(byte[] data) {
 		String data_string="";
 		for (int i=0; i<data.length; i++) {
 			data_string+=String.format("%02X", data[i]);
