@@ -94,7 +94,7 @@ public class AESGCMEncryptDecryptLambda {
 		// Get the Ip from the configuration file
 		logger.log("* Getting the HSM IP of the configuration file ... ");
 
-		String confFile = "etc/cloudhsm_client.cfg";
+		String confFile = "/opt/cloudhsm/etc/cloudhsm_client.cfg";
 
 		JSONParser parser = new JSONParser();
 		Object obj = parser.parse(new FileReader(confFile));
@@ -264,7 +264,7 @@ public class AESGCMEncryptDecryptLambda {
 		logger.log("* Starting the cloudhsm client ... ");
 
 		File logFile = new File("/tmp/client.log");
-		Process pr = new ProcessBuilder("bin/cloudhsm_client",confFile).redirectErrorStream(true).redirectOutput(logFile).start();
+		Process pr = new ProcessBuilder("/opt/cloudhsm/bin/cloudhsm_client",confFile).redirectErrorStream(true).redirectOutput(logFile).start();
 
 		// Wait for the client to start
 
